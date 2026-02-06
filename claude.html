@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>傾き単語帳</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            overflow: hidden;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 20px;
+            padding: 40px 30px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            min-height: 300px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            transition: transform 0.3s ease;
+        }
+
+        .card.tilt-forward {
+            transform: perspective(1000px) rotateX(-5deg);
+        }
+
+        .card.tilt-backward {
+            transform: perspective(1000px) rotateX(5deg);
+        }
+
+        .question {
+            font-size: 28px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        .answer {
+            font-size: 24px;
+            color: #667eea;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.3s ease;
+            margin-top: 20px;
+        }
+
+        .answer.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .instruction {
+            margin-top: 30px;
+            color: white;
+            font-size: 14px;
+            text-align: center;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        button {
+            flex: 1;
+            padding: 15px 25px;
+            font-size: 16px;
+            font-weight: bold;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            color: white;
+        }
+
+        .btn-next {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .btn-prev {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+
+        button:active {
+            transform: scale(0.95);
+        }
+
+        .counter {
+            color: white;
+            font-size: 18px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+
+        .permission-btn {
+            background: white;
+            color: #667eea;
+            padding: 20px 40px;
+            font-size: 18px;
+            font-weight: bold;
+            border: none;
+            border-radius: 15px;
+            cursor: pointer;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            transition: all 0.2s ease;
+        }
+
+        .permission-btn:active {
+            transform: scale(0.95);
+        }
+
+        .status {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 12px;
+            color: #666;
+            display: none;
+        }
+
+        .tilt-indicator {
+            color: white;
+            font-size: 12px;
+            margin-top: 10px;
+            font-weight: bold;
+        }
+
+        #app {
+            display: none;
+        }
+
+        #permission-screen {
+            text-align: center;
+        }
+
+        #permission-screen h1 {
+            color: white;
+            margin-bottom: 20px;
+            font-size: 32px;
+        }
+
+        #permission-screen p {
+            color: white;
+            margin-bottom: 30px;
+            font-size: 16px;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+    <div id="permission-screen">
+        <h1>📱 傾き単語帳</h1>
+        <p>スマホを手前/奥に傾けると<br>答えが表示されます</p>
+        <button class="permission-btn" onclick="requestPermission()">開始する</button>
+    </div>
+
+    <div id="app">
+        <div class="container">
+            <div class="counter" id="counter">1 / 10</div>
+            <div class="card" id="card">
+                <div class="question" id="question">読み込み中...</div>
+                <div class="answer" id="answer">...</div>
+            </div>
+            <div class="instruction">
+                📱 スマホを手前/奥に傾けると答えが表示されます
+                <div class="tilt-indicator" id="tilt-indicator">待機中...</div>
+            </div>
+            <div class="controls">
+                <button class="btn-prev" onclick="prevCard()">← 前へ</button>
+                <button class="btn-next" onclick="nextCard()">次へ →</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="status" id="status">傾き: 0°</div>
+
+    <script>
+        // 単語帳データ（サンプル）
+        const flashcards = [
+            { question: "apple", answer: "りんご" },
+            { question: "book", answer: "本" },
+            { question: "cat", answer: "猫" },
+            { question: "dog", answer: "犬" },
+            { question: "elephant", answer: "象" },
+            { question: "fish", answer: "魚" },
+            { question: "guitar", answer: "ギター" },
+            { question: "house", answer: "家" },
+            { question: "ice cream", answer: "アイスクリーム" },
+            { question: "Japan", answer: "日本" }
+        ];
+
+        let currentIndex = 0;
+        let baseBeta = null;  // 基準となる傾き角度
+        let showingAnswer = false;
+        const TILT_THRESHOLD = 15;  // 傾き検知の閾値（度）
+
+        function requestPermission() {
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                // iOS 13+ の場合、許可が必要
+                DeviceOrientationEvent.requestPermission()
+                    .then(permissionState => {
+                        if (permissionState === 'granted') {
+                            startApp();
+                        } else {
+                            alert('傾きセンサーの使用が許可されませんでした');
+                        }
+                    })
+                    .catch(console.error);
+            } else {
+                // Android や古いiOSの場合
+                startApp();
+            }
+        }
+
+        function startApp() {
+            document.getElementById('permission-screen').style.display = 'none';
+            document.getElementById('app').style.display = 'block';
+            
+            // 傾きセンサーのイベントリスナーを設定
+            window.addEventListener('deviceorientation', handleOrientation);
+            
+            // 最初のカードを表示
+            showCard();
+        }
+
+        function handleOrientation(event) {
+            const beta = event.beta;  // 前後の傾き（-180 ~ 180度）
+            
+            if (beta === null) return;
+
+            // 基準角度が未設定の場合、現在の角度を基準とする
+            if (baseBeta === null) {
+                baseBeta = beta;
+                return;
+            }
+
+            // 基準からの相対的な傾きを計算
+            let relativeTilt = beta - baseBeta;
+            
+            // デバッグ表示
+            document.getElementById('status').style.display = 'block';
+            document.getElementById('status').textContent = `傾き: ${relativeTilt.toFixed(1)}°`;
+
+            const card = document.getElementById('card');
+            const answer = document.getElementById('answer');
+            const indicator = document.getElementById('tilt-indicator');
+
+            // 手前に傾けた（マイナス方向）または奥に傾けた（プラス方向）
+            if (Math.abs(relativeTilt) > TILT_THRESHOLD) {
+                if (!showingAnswer) {
+                    // 答えを表示
+                    answer.classList.add('visible');
+                    showingAnswer = true;
+                    
+                    if (relativeTilt < 0) {
+                        card.classList.add('tilt-forward');
+                        card.classList.remove('tilt-backward');
+                        indicator.textContent = '📱 手前に傾けています';
+                    } else {
+                        card.classList.add('tilt-backward');
+                        card.classList.remove('tilt-forward');
+                        indicator.textContent = '📱 奥に傾けています';
+                    }
+                }
+            } else {
+                if (showingAnswer) {
+                    // 答えを非表示
+                    answer.classList.remove('visible');
+                    showingAnswer = false;
+                    card.classList.remove('tilt-forward', 'tilt-backward');
+                    indicator.textContent = '待機中...';
+                }
+            }
+        }
+
+        function showCard() {
+            const card = flashcards[currentIndex];
+            document.getElementById('question').textContent = card.question;
+            document.getElementById('answer').textContent = card.answer;
+            document.getElementById('counter').textContent = `${currentIndex + 1} / ${flashcards.length}`;
+            
+            // 答えを非表示にリセット
+            document.getElementById('answer').classList.remove('visible');
+            showingAnswer = false;
+            
+            // 基準角度をリセット
+            baseBeta = null;
+            
+            // カードのアニメーションをリセット
+            document.getElementById('card').classList.remove('tilt-forward', 'tilt-backward');
+            document.getElementById('tilt-indicator').textContent = '待機中...';
+        }
+
+        function nextCard() {
+            currentIndex = (currentIndex + 1) % flashcards.length;
+            showCard();
+        }
+
+        function prevCard() {
+            currentIndex = (currentIndex - 1 + flashcards.length) % flashcards.length;
+            showCard();
+        }
+    </script>
+</body>
+</html>
