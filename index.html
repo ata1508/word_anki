@@ -3,33 +3,40 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>傾きで答え表示する単語帳（beta=50以下で表示）</title>
+  <title>単語帳（基準角度キャリブレーション）</title>
 
   <style>
     body {
       margin: 0;
       font-family: system-ui, -apple-system, "Noto Sans JP", sans-serif;
+      line-height: 1.4;
     }
     .wrap {
-      max-width: 720px;
+      max-width: 760px;
       margin: 0 auto;
       padding: 16px;
     }
     .card {
-      border: 1px solid #ccc;
+      border: 1px solid rgba(127,127,127,.35);
       border-radius: 12px;
       padding: 16px;
+    }
+    .row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
     }
     button {
       padding: 10px 12px;
       border-radius: 10px;
-      border: 1px solid #999;
-      background: #fff;
+      border: 1px solid rgba(127,127,127,.35);
+      background: transparent;
       font-size: 14px;
+      cursor: pointer;
     }
-    button:disabled {
-      opacity: .5;
-    }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+
     .q {
       margin-top: 12px;
       font-size: 22px;
@@ -39,7 +46,7 @@
       margin-top: 10px;
       padding: 12px;
       border-radius: 10px;
-      background: #f3f3f3;
+      background: rgba(127,127,127,.12);
       display: none;
       font-size: 18px;
       font-weight: 600;
@@ -47,22 +54,22 @@
     .hint {
       margin-top: 10px;
       font-size: 12px;
-      color: #555;
+      opacity: .75;
     }
     .status {
       margin-top: 10px;
       font-size: 12px;
       white-space: pre-wrap;
+      opacity: .85;
     }
+
     details {
       margin-top: 14px;
-      border: 1px solid #ccc;
+      border: 1px solid rgba(127,127,127,.35);
       border-radius: 12px;
-      padding: 10px;
+      padding: 10px 12px;
     }
-    summary {
-      font-weight: 600;
-    }
+    summary { cursor: pointer; font-weight: 600; }
     .grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -71,12 +78,25 @@
     }
     label {
       font-size: 12px;
+      opacity: .85;
       display: block;
       margin-bottom: 4px;
     }
-    input[type="range"],
+    input[type="range"], input[type="number"] { width: 100%; box-sizing: border-box; }
     input[type="number"] {
-      width: 100%;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(127,127,127,.35);
+      background: transparent;
+      font-size: 14px;
+    }
+    .pill {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(127,127,127,.35);
+      font-size: 12px;
+      opacity: .9;
     }
   </style>
 </head>
@@ -84,121 +104,256 @@
 <body>
 <div class="wrap">
   <div class="card">
-    <button id="enableBtn">傾き操作を有効化（許可）</button>
+    <div class="row">
+      <span class="pill" id="permPill">Permission: unknown</span>
+      <span class="pill" id="sensorPill">Sensor: stopped</span>
+      <span class="pill" id="basePill">Base(beta0): unset</span>
+    </div>
 
-    <div class="q">apple</div>
+    <div style="height:10px;"></div>
+
+    <div class="row">
+      <button id="enableBtn">傾き操作を有効化（許可）</button>
+      <button id="setBaseBtn" disabled>この角度を基準にする</button>
+      <button id="clearBaseBtn" disabled>基準をクリア</button>
+      <button id="prevBtn" type="button">前へ</button>
+      <button id="nextBtn" type="button">次へ</button>
+    </div>
+
+    <div class="q" id="question">apple</div>
     <div class="a" id="answer">りんご</div>
 
     <div class="hint">
-      通常姿勢：beta ≈ 70<br>
-      <strong>50以下</strong>まで奥に倒すと答え表示／<strong>60以上</strong>で非表示
+      1) 普段の見方で構える → 2)「この角度を基準にする」→ 3) 前でも奥でも ±20° ずらすと答え表示（戻すと非表示）。
     </div>
 
     <div class="status" id="status"></div>
   </div>
 
   <details open>
-    <summary>判定パラメータ</summary>
+    <summary>判定パラメータ（差分判定）</summary>
     <div class="grid">
       <div>
-        <label>表示ON（beta ≤）</label>
-        <input id="onBeta" type="range" min="0" max="90" step="1" value="50">
+        <label for="onDelta">表示ON（|delta| ≥ 度）</label>
+        <input id="onDelta" type="range" min="5" max="60" step="1" value="20" />
       </div>
       <div>
-        <label>表示OFF（beta ≥）</label>
-        <input id="offBeta" type="range" min="0" max="90" step="1" value="60">
+        <label for="offDelta">表示OFF（|delta| ≤ 度）</label>
+        <input id="offDelta" type="range" min="0" max="60" step="1" value="12" />
       </div>
       <div>
-        <label>平滑化</label>
-        <input id="smooth" type="range" min="0.05" max="0.5" step="0.01" value="0.2">
+        <label for="smooth">平滑化（0.05〜0.5）</label>
+        <input id="smooth" type="range" min="0.05" max="0.5" step="0.01" value="0.2" />
       </div>
       <div>
-        <label>クールダウン(ms)</label>
-        <input id="cooldown" type="number" min="0" max="2000" step="50" value="250">
+        <label for="cooldown">クールダウン（ms）</label>
+        <input id="cooldown" type="number" min="0" max="2000" step="50" value="250" />
       </div>
+    </div>
+    <div class="hint">
+      推奨：ON=20、OFF=10〜15。揺れる環境はクールダウンを300〜700msへ。
     </div>
   </details>
 </div>
 
 <script>
+  const cards = [
+    { q: "apple", a: "りんご" },
+    { q: "orange", a: "みかん" },
+    { q: "water", a: "水" },
+    { q: "computer", a: "コンピュータ" },
+  ];
+
   const enableBtn = document.getElementById("enableBtn");
+  const setBaseBtn = document.getElementById("setBaseBtn");
+  const clearBaseBtn = document.getElementById("clearBaseBtn");
+  const prevBtn = document.getElementById("prevBtn");
+  const nextBtn = document.getElementById("nextBtn");
+
+  const questionEl = document.getElementById("question");
   const answerEl = document.getElementById("answer");
   const statusEl = document.getElementById("status");
 
-  const onBetaEl = document.getElementById("onBeta");
-  const offBetaEl = document.getElementById("offBeta");
+  const permPill = document.getElementById("permPill");
+  const sensorPill = document.getElementById("sensorPill");
+  const basePill = document.getElementById("basePill");
+
+  const onDeltaEl = document.getElementById("onDelta");
+  const offDeltaEl = document.getElementById("offDelta");
   const smoothEl = document.getElementById("smooth");
   const cooldownEl = document.getElementById("cooldown");
 
+  let index = 0;
   let isRevealed = false;
+
   let betaSmoothed = 0;
   let lastToggleAt = 0;
-  let started = false;
 
+  let hasStarted = false;
+  let lastBetaRaw = null;
+
+  // キャリブレーション基準
+  let beta0 = null;
+
+  /**
+   * 表示状態を更新する
+   * @param {boolean} reveal
+   * @returns {void}
+   */
   const setReveal = (reveal) => {
     isRevealed = reveal;
     answerEl.style.display = reveal ? "block" : "none";
   };
 
-  const requestPermission = async () => {
-    if (
-      typeof DeviceOrientationEvent !== "undefined" &&
-      typeof DeviceOrientationEvent.requestPermission === "function"
-    ) {
-      return await DeviceOrientationEvent.requestPermission();
-    }
-    return "granted";
+  /**
+   * カードを描画する
+   * @returns {void}
+   */
+  const renderCard = () => {
+    const c = cards[index];
+    questionEl.textContent = c.q;
+    answerEl.textContent = c.a;
+    setReveal(false);
   };
 
+  /**
+   * Pillを更新する
+   * @param {string} perm
+   * @param {string} sensor
+   * @returns {void}
+   */
+  const setPills = (perm, sensor) => {
+    permPill.textContent = `Permission: ${perm}`;
+    sensorPill.textContent = `Sensor: ${sensor}`;
+  };
+
+  /**
+   * 許可を要求する
+   * @returns {Promise<"granted"|"denied"|"prompt"|"unsupported"|"error">}
+   */
+  const requestMotionPermission = async () => {
+    try {
+      if (typeof DeviceOrientationEvent === "undefined") return "unsupported";
+      const anyEvt = /** @type {any} */ (DeviceOrientationEvent);
+
+      if (typeof anyEvt.requestPermission === "function") {
+        const res = await anyEvt.requestPermission();
+        if (res === "granted") return "granted";
+        if (res === "denied") return "denied";
+        return "prompt";
+      }
+      return "granted";
+    } catch {
+      return "error";
+    }
+  };
+
+  /**
+   * センサー開始
+   * @returns {void}
+   */
   const startSensor = () => {
-    if (started) return;
+    if (hasStarted) return;
 
     window.addEventListener("deviceorientation", (e) => {
-      if (typeof e.beta !== "number") return;
+      const beta = e.beta;
+      if (typeof beta !== "number") return;
 
-      const onBeta = Number(onBetaEl.value);
-      const offBeta = Number(offBetaEl.value);
+      lastBetaRaw = beta;
+
       const smoothing = Number(smoothEl.value);
-      const cooldown = Number(cooldownEl.value);
+      betaSmoothed = betaSmoothed + (beta - betaSmoothed) * smoothing;
 
-      betaSmoothed += (e.beta - betaSmoothed) * smoothing;
+      const onDelta = Number(onDeltaEl.value);
+      const offDelta = Number(offDeltaEl.value);
+      const cooldownMs = Number(cooldownEl.value);
 
       const now = performance.now();
-      const canToggle = now - lastToggleAt >= cooldown;
+      const canToggle = (now - lastToggleAt) >= cooldownMs;
 
-      // ★ betaが下がったら表示、戻ったら非表示
-      if (!isRevealed && betaSmoothed <= onBeta && canToggle) {
-        setReveal(true);
-        lastToggleAt = now;
-      } else if (isRevealed && betaSmoothed >= offBeta && canToggle) {
+      let delta = null;
+      if (typeof beta0 === "number") {
+        delta = betaSmoothed - beta0;
+
+        const absDelta = Math.abs(delta);
+
+        // 差分判定：どちら向きでも|delta|が大きければ表示
+        if (!isRevealed && absDelta >= onDelta && canToggle) {
+          setReveal(true);
+          lastToggleAt = now;
+        } else if (isRevealed && absDelta <= offDelta && canToggle) {
+          setReveal(false);
+          lastToggleAt = now;
+        }
+      } else {
+        // 基準未設定の間は安全側（表示しない）
         setReveal(false);
-        lastToggleAt = now;
       }
 
+      basePill.textContent = (typeof beta0 === "number")
+        ? `Base(beta0): ${beta0.toFixed(1)}`
+        : "Base(beta0): unset";
+
       statusEl.textContent =
-        `beta(raw): ${e.beta.toFixed(1)}\n` +
+        `card: ${index + 1} / ${cards.length}\n` +
+        `beta(raw): ${beta.toFixed(1)}\n` +
         `beta(smooth): ${betaSmoothed.toFixed(1)}\n` +
-        `ON ≤ ${onBeta} / OFF ≥ ${offBeta}\n` +
+        `beta0(base): ${typeof beta0 === "number" ? beta0.toFixed(1) : "unset"}\n` +
+        `delta(smooth-base): ${typeof delta === "number" ? delta.toFixed(1) : "n/a"}\n` +
+        `ON |delta| ≥ ${onDelta} / OFF |delta| ≤ ${offDelta}\n` +
         `revealed: ${isRevealed}`;
     }, { passive: true });
 
-    started = true;
+    hasStarted = true;
+    setPills(permPill.textContent.replace("Permission: ", ""), "running");
   };
 
-  enableBtn.addEventListener("click", async () => {
-    enableBtn.disabled = true;
+  enableBtn.addEventListener("click", () => {
+    void (async () => {
+      enableBtn.disabled = true;
 
-    const res = await requestPermission();
-    if (res !== "granted") {
-      statusEl.textContent = "センサーの許可が得られませんでした。";
-      enableBtn.disabled = false;
-      return;
-    }
+      const perm = await requestMotionPermission();
+      setPills(perm, perm === "granted" ? "starting" : "stopped");
 
-    startSensor();
-    enableBtn.textContent = "傾き操作：有効";
+      if (perm !== "granted") {
+        enableBtn.disabled = false;
+        statusEl.textContent =
+          "センサーの許可が得られませんでした。\n" +
+          "HTTPSで開いているか、iPhone設定 > Safari > モーションと方向へのアクセスを確認してください。";
+        return;
+      }
+
+      startSensor();
+      enableBtn.textContent = "傾き操作：有効";
+      setBaseBtn.disabled = false;
+      clearBaseBtn.disabled = false;
+    })();
   });
+
+  setBaseBtn.addEventListener("click", () => {
+    // 基準は「現在の平滑化後beta」を採用（安定しやすい）
+    if (typeof lastBetaRaw !== "number") return;
+    beta0 = betaSmoothed;
+    setReveal(false);
+  });
+
+  clearBaseBtn.addEventListener("click", () => {
+    beta0 = null;
+    setReveal(false);
+  });
+
+  prevBtn.addEventListener("click", () => {
+    index = (index - 1 + cards.length) % cards.length;
+    renderCard();
+  });
+
+  nextBtn.addEventListener("click", () => {
+    index = (index + 1) % cards.length;
+    renderCard();
+  });
+
+  renderCard();
+  setPills("unknown", "stopped");
 </script>
 </body>
 </html>
-
