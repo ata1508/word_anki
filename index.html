@@ -3,13 +3,12 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>傾きで答え表示する単語帳（奥で表示）</title>
+  <title>傾きで答え表示する単語帳（beta=50以下で表示）</title>
 
   <style>
     body {
       margin: 0;
       font-family: system-ui, -apple-system, "Noto Sans JP", sans-serif;
-      line-height: 1.4;
     }
     .wrap {
       max-width: 720px;
@@ -29,7 +28,7 @@
       font-size: 14px;
     }
     button:disabled {
-      opacity: 0.5;
+      opacity: .5;
     }
     .q {
       margin-top: 12px;
@@ -54,7 +53,6 @@
       margin-top: 10px;
       font-size: 12px;
       white-space: pre-wrap;
-      color: #333;
     }
     details {
       margin-top: 14px;
@@ -88,27 +86,27 @@
   <div class="card">
     <button id="enableBtn">傾き操作を有効化（許可）</button>
 
-    <div class="q" id="question">apple</div>
+    <div class="q">apple</div>
     <div class="a" id="answer">りんご</div>
 
     <div class="hint">
-      端末を<strong>奥に倒す</strong>と答え表示。戻すと非表示。<br>
-      初回はボタンを押して許可してください（HTTPS必須）。
+      通常姿勢：beta ≈ 70<br>
+      <strong>50以下</strong>まで奥に倒すと答え表示／<strong>60以上</strong>で非表示
     </div>
 
     <div class="status" id="status"></div>
   </div>
 
   <details open>
-    <summary>しきい値調整（奥で表示）</summary>
+    <summary>判定パラメータ</summary>
     <div class="grid">
       <div>
         <label>表示ON（beta ≤）</label>
-        <input id="onBeta" type="range" min="-60" max="0" step="1" value="-25">
+        <input id="onBeta" type="range" min="0" max="90" step="1" value="50">
       </div>
       <div>
         <label>表示OFF（beta ≥）</label>
-        <input id="offBeta" type="range" min="-60" max="0" step="1" value="-15">
+        <input id="offBeta" type="range" min="0" max="90" step="1" value="60">
       </div>
       <div>
         <label>平滑化</label>
@@ -124,7 +122,6 @@
 
 <script>
   const enableBtn = document.getElementById("enableBtn");
-  const questionEl = document.getElementById("question");
   const answerEl = document.getElementById("answer");
   const statusEl = document.getElementById("status");
 
@@ -138,18 +135,11 @@
   let lastToggleAt = 0;
   let started = false;
 
-  /**
-   * 答え表示制御
-   * @param {boolean} reveal
-   */
   const setReveal = (reveal) => {
     isRevealed = reveal;
     answerEl.style.display = reveal ? "block" : "none";
   };
 
-  /**
-   * iOS向け許可取得
-   */
   const requestPermission = async () => {
     if (
       typeof DeviceOrientationEvent !== "undefined" &&
@@ -160,9 +150,6 @@
     return "granted";
   };
 
-  /**
-   * センサー開始
-   */
   const startSensor = () => {
     if (started) return;
 
@@ -179,7 +166,7 @@
       const now = performance.now();
       const canToggle = now - lastToggleAt >= cooldown;
 
-      // ★ 奥に倒したとき表示（負方向）
+      // ★ betaが下がったら表示、戻ったら非表示
       if (!isRevealed && betaSmoothed <= onBeta && canToggle) {
         setReveal(true);
         lastToggleAt = now;
