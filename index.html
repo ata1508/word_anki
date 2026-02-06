@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>傾きで答え表示する単語帳</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+    }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans JP", sans-serif;
+      line-height: 1.4;
+    }
+    .wrap {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+    .card {
+      border: 1px solid rgba(127,127,127,.35);
+      border-radius: 12px;
+      padding: 14px;
+      margin-top: 12px;
+    }
+    .row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    button {
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(127,127,127,.35);
+      background: transparent;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button:disabled {
+      opacity: .5;
+      cursor: not-allowed;
+    }
+    .q {
+      font-size: 22px;
+      font-weight: 700;
+      margin: 6px 0 0;
+    }
+    .a {
+      margin-top: 10px;
+      padding: 12px;
+      border-radius: 10px;
+      background: rgba(127,127,127,.12);
+      display: none;
+      font-size: 18px;
+      font-weight: 600;
+    }
+    .hint {
+      margin-top: 10px;
+      font-size: 12px;
+      opacity: .75;
+    }
+    .status {
+      margin-top: 8px;
+      font-size: 12px;
+      opacity: .85;
+      white-space: pre-wrap;
+    }
+    .pill {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(127,127,127,.35);
+      font-size: 12px;
+      opacity: .9;
+    }
+    .spacer {
+      height: 8px;
+    }
+    details {
+      margin-top: 12px;
+      border: 1px solid rgba(127,127,127,.35);
+      border-radius: 12px;
+      padding: 10px 12px;
+    }
+    summary {
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    label {
+      font-size: 12px;
+      opacity: .85;
+      display: block;
+      margin-bottom: 4px;
+    }
+    input[type="range"] {
+      width: 100%;
+    }
+    input[type="number"] {
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(127,127,127,.35);
+      background: transparent;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="row">
+        <span class="pill" id="permPill">Permission: unknown</span>
+        <span class="pill" id="sensorPill">Sensor: stopped</span>
+      </div>
+
+      <div class="spacer"></div>
+
+      <div class="row">
+        <button id="enableBtn">傾き操作を有効化（許可）</button>
+        <button id="toggleDebugBtn" type="button">デバッグ表示: ON</button>
+        <button id="prevBtn" type="button">前へ</button>
+        <button id="nextBtn" type="button">次へ</button>
+      </div>
+
+      <div class="q" id="question">apple</div>
+      <div class="a" id="answer">りんご</div>
+
+      <div class="hint">
+        端末を「手前に倒す」と答え表示、戻すと非表示（ホールド式）。<br />
+        ※ 初回はボタン押下で許可が必要です。HTTPSで開いてください。
+      </div>
+
+      <div class="status" id="status"></div>
+    </div>
+
+    <details open>
+      <summary>しきい値・挙動の調整（誤作動対策）</summary>
+      <div class="grid">
+        <div>
+          <label for="onBeta">表示ON閾値（beta, 度）</label>
+          <input id="onBeta" type="range" min="0" max="60" step="1" value="25" />
+        </div>
+        <div>
+          <label for="offBeta">表示OFF閾値（beta, 度）</label>
+          <input id="offBeta" type="range" min="0" max="60" step="1" value="15" />
+        </div>
+
+        <div>
+          <label for="smooth">平滑化（0.05〜0.5）</label>
+          <input id="smooth" type="range" min="0.05" max="0.5" step="0.01" value="0.2" />
+        </div>
+        <div>
+          <label for="cooldown">クールダウン（ms）</label>
+          <input id="cooldown" type="number" min="0" max="2000" step="50" value="250" />
+        </div>
+      </div>
+
+      <div class="hint">
+        推奨（揺れる環境向け）: ON=35〜45 / OFF=10〜20、平滑化=0.12〜0.2、クールダウン=300〜500ms
+      </div>
+    </details>
+  </div>
+
+  <script>
+    const cards = [
+      { q: "apple", a: "りんご" },
+      { q: "orange", a: "みかん" },
+      { q: "water", a: "水" },
+      { q: "computer", a: "コンピュータ" },
+    ];
+
+    const enableBtn = document.getElementById("enableBtn");
+    const toggleDebugBtn = document.getElementById("toggleDebugBtn");
+    const prevBtn = document.getElementById("prevBtn");
+    const nextBtn = document.getElementById("nextBtn");
+
+    const questionEl = document.getElementById("question");
+    const answerEl = document.getElementById("answer");
+    const statusEl = document.getElementById("status");
+
+    const permPill = document.getElementById("permPill");
+    const sensorPill = document.getElementById("sensorPill");
+
+    const onBetaEl = document.getElementById("onBeta");
+    const offBetaEl = document.getElementById("offBeta");
+    const smoothEl = document.getElementById("smooth");
+    const cooldownEl = document.getElementById("cooldown");
+
+    let index = 0;
+    let isRevealed = false;
+
+    let betaSmoothed = 0;
+    let lastToggleAt = 0;
+
+    let hasStarted = false;
+    let debugVisible = true;
+
+    /**
+     * 現在カードを表示する
+     * @returns {void}
+     */
+    const renderCard = () => {
+      const c = cards[index];
+      questionEl.textContent = c.q;
+      answerEl.textContent = c.a;
+      // カード切替時は安全側（答えを隠す）
+      setReveal(false);
+    };
+
+    /**
+     * 答えの表示状態をセットする
+     * @param {boolean} reveal
+     * @returns {void}
+     */
+    const setReveal = (reveal) => {
+      isRevealed = reveal;
+      answerEl.style.display = reveal ? "block" : "none";
+    };
+
+    /**
+     * Pill表示を更新する
+     * @param {string} perm
+     * @param {string} sensor
+     * @returns {void}
+     */
+    const setPills = (perm, sensor) => {
+      permPill.textContent = `Permission: ${perm}`;
+      sensorPill.textContent = `Sensor: ${sensor}`;
+    };
+
+    /**
+     * requestPermission を試みる（必要な環境のみ）
+     * @returns {Promise<"granted"|"denied"|"prompt"|"unsupported"|"error">}
+     */
+    const requestMotionPermission = async () => {
+      try {
+        if (typeof DeviceOrientationEvent === "undefined") return "unsupported";
+        const anyEvt = /** @type {any} */ (DeviceOrientationEvent);
+
+        if (typeof anyEvt.requestPermission === "function") {
+          const res = await anyEvt.requestPermission();
+          if (res === "granted") return "granted";
+          if (res === "denied") return "denied";
+          return "prompt";
+        }
+
+        // requestPermission がない環境は、実質「許可済み扱い」でイベント購読できる場合が多い
+        return "granted";
+      } catch {
+        return "error";
+      }
+    };
+
+    /**
+     * deviceorientation イベントを開始する
+     * @returns {void}
+     */
+    const startSensor = () => {
+      if (hasStarted) return;
+
+      window.addEventListener("deviceorientation", (e) => {
+        const beta = e.beta;
+        if (typeof beta !== "number") return;
+
+        const onBeta = Number(onBetaEl.value);
+        const offBeta = Number(offBetaEl.value);
+        const smoothing = Number(smoothEl.value);
+        const cooldownMs = Number(cooldownEl.value);
+
+        // 平滑化（一次遅れ）
+        betaSmoothed = betaSmoothed + (beta - betaSmoothed) * smoothing;
+
+        const now = performance.now();
+        const canToggle = (now - lastToggleAt) >= cooldownMs;
+
+        // ヒステリシス（ホールド式）
+        if (!isRevealed && betaSmoothed >= onBeta && canToggle) {
+          setReveal(true);
+          lastToggleAt = now;
+        } else if (isRevealed && betaSmoothed <= offBeta && canToggle) {
+          setReveal(false);
+          lastToggleAt = now;
+        }
+
+        if (debugVisible) {
+          statusEl.textContent =
+            `card: ${index + 1} / ${cards.length}\n` +
+            `beta(raw): ${beta.toFixed(1)}\n` +
+            `beta(smooth): ${betaSmoothed.toFixed(1)}\n` +
+            `on/off: ${onBeta} / ${offBeta}\n` +
+            `smoothing: ${smoothing}\n` +
+            `cooldown(ms): ${cooldownMs}\n` +
+            `revealed: ${isRevealed}\n` +
+            `screen.orientation: ${(() => {
+              const o = screen.orientation?.type;
+              return typeof o === "string" ? o : "unknown";
+            })()}`;
+        } else {
+          statusEl.textContent = "";
+        }
+      }, { passive: true });
+
+      hasStarted = true;
+      setPills(permPill.textContent.replace("Permission: ", ""), "running");
+    };
+
+    /**
+     * 有効化ボタン押下時の処理
+     * @returns {Promise<void>}
+     */
+    const enable = async () => {
+      enableBtn.disabled = true;
+
+      // iOS対策: ユーザー操作を起点に許可を取る
+      const perm = await requestMotionPermission();
+      setPills(perm, perm === "granted" ? "starting" : "stopped");
+
+      if (perm !== "granted") {
+        enableBtn.disabled = false;
+        statusEl.textContent =
+          "センサーの許可が得られませんでした。\n" +
+          "・HTTPSで開いているか\n" +
+          "・iPhone設定 > Safari > モーションと方向へのアクセス が許可か\n" +
+          "を確認してください。";
+        return;
+      }
+
+      startSensor();
+      enableBtn.textContent = "傾き操作: 有効";
+    };
+
+    enableBtn.addEventListener("click", () => {
+      void enable();
+    });
+
+    toggleDebugBtn.addEventListener("click", () => {
+      debugVisible = !debugVisible;
+      toggleDebugBtn.textContent = `デバッグ表示: ${debugVisible ? "ON" : "OFF"}`;
+      if (!debugVisible) statusEl.textContent = "";
+    });
+
+    prevBtn.addEventListener("click", () => {
+      index = (index - 1 + cards.length) % cards.length;
+      renderCard();
+    });
+
+    nextBtn.addEventListener("click", () => {
+      index = (index + 1) % cards.length;
+      renderCard();
+    });
+
+    // 初期表示
+    renderCard();
+    setPills("unknown", "stopped");
+  </script>
+</body>
+</html>
